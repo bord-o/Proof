@@ -48,8 +48,6 @@ lemma "Neg 1 < Neg 2" by simp
   apply (standard; simp add: less_eq_literal_def)
   using less_literal.elims(2) apply fastforce*)
 
-fun first_literal :: "literal set \<Rightarrow> literal" where
-  "first_literal s = (THE x. x \<in> s)"  (* since unit clauses have exactly one element *)
 
 type_synonym clause = "literal set"
 
@@ -57,7 +55,25 @@ type_synonym \<Phi> = "clause set"
 
 datatype result = Sat | Unsat
 
+type_synonym assignment = "nat \<Rightarrow> bool"
+
 (* --- Helpers --- *)
+
+
+fun eval_literal :: "assignment \<Rightarrow> literal \<Rightarrow> bool" where
+  "eval_literal \<sigma> (Pos n) = \<sigma> n" |
+  "eval_literal \<sigma> (Neg n) = (\<not>(\<sigma> n))"
+
+fun eval_clause :: "assignment \<Rightarrow> clause \<Rightarrow> bool" where
+  "eval_clause \<sigma> c = (\<exists>l \<in> c. eval_literal \<sigma> l)"
+
+fun eval_formula :: "assignment \<Rightarrow> \<Phi> \<Rightarrow> bool" where
+  "eval_formula \<sigma> f = (\<forall>c \<in> f. eval_clause \<sigma> c)"
+
+definition satisfiable :: "\<Phi> \<Rightarrow> bool" where
+  "satisfiable f = (\<exists>\<sigma>. eval_formula \<sigma> f)"
+
+
 fun opposite_lit :: "literal \<Rightarrow> literal" where
   "opposite_lit (Pos n) = Neg n" |
   "opposite_lit (Neg n) = Pos n"
@@ -77,7 +93,23 @@ definition is_unit_clause :: "clause \<Rightarrow> bool" where
   "is_unit_clause c = (card c = 1)"
 
 fun  unit_literals :: "\<Phi> \<Rightarrow> literal set" where
-  "unit_literals f = (\<lambda>c. (SOME lit. lit \<in> c) ) ` {c.  c \<in> f \<and> is_unit_clause c}"
+  "unit_literals f = the_elem ` {c.  c \<in> f \<and> is_unit_clause c}"
+
+value "unit_literals {{Pos 1, Pos 2}, {Pos 3}}"
+
+lemma fixes f c assumes "c \<in> f \<and> card c = 1" shows "(the_elem c) \<in> unit_literals f"
+  by (simp add: assms is_unit_clause_def)
+
+lemma unit_literals_sound: 
+  fixes f l 
+  assumes "finite f"
+  assumes "l \<in> unit_literals f" 
+  shows "\<exists>c. c \<in> f \<and> card c = 1 \<and> l = the_elem c"
+proof -
+  show ?thesis
+    using assms(2) is_unit_clause_def by auto
+qed
+  
 
 definition unit_prop_step :: "\<Phi> \<Rightarrow> literal \<Rightarrow> \<Phi>" where
   "unit_prop_step f uc = (
@@ -87,18 +119,162 @@ definition unit_prop_step :: "\<Phi> \<Rightarrow> literal \<Rightarrow> \<Phi>"
       let neg_filt = {clause \<in> pos_filt. neg_lit \<in> clause} in 
       (pos_filt - neg_filt) \<union> {(\<lambda>c. c - {neg_lit}) clause | clause. clause \<in> neg_filt })"
 
+(*
+To prove:
+  x - unit prop step will remove all clauses containing that literal
+  x - unit prop step will remove the inverse of that literal from all clauses
+  x - unit prop will do nothing if the literal is not in the formula
+  x - unit prop will never add clauses, only remove them
+  x - unit prop preserves satisfiability
+*)
+
+
+lemma unit_prop_empty:
+  assumes "finite f"
+  shows "\<forall>l. unit_prop_step {} l = {}" 
+  by (simp add: unit_prop_step_def)
+
+lemma subset_union_card:
+  fixes a b c f
+  assumes "a \<subseteq> c"
+  assumes "b \<subseteq> a"
+  assumes "finite c"
+  shows "card(a - b \<union> (f ` b)) \<le> card c"
+proof -
+  have "card (a - b) + card b = card a"
+    using assms(2,3,1) 
+    by (metis card_Diff_subset card_mono le_add_diff_inverse2 rev_finite_subset)    
+  have "card (a - b \<union> (f ` b)) \<le> card (a - b) + card (f ` b)"
+    by (rule card_Un_le)
+  also have "... \<le> card (a - b) + card b"
+    using card_image_le by (meson add_left_mono assms finite_subset order_trans)
+  also have "... = card a"
+    using `card (a - b) + card b = card a` by simp
+  also have "... \<le> card c"
+    using assms by (simp add: card_mono)
+  finally show ?thesis .
+qed
+
+lemma unit_prop_no_grow: 
+  fixes f l
+  assumes "finite f"
+  shows "card (unit_prop_step f l) \<le> card f" 
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis using unit_prop_empty assms
+      by fastforce
+  next
+    case False
+    let ?not_containing_l = "{clause \<in> f. l \<notin> clause}"
+    let ?containing_opp_l = "{clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause}"
+    let ?reduced_clauses = "{clause - {opposite_lit l} |clause. clause \<in> f \<and> l \<notin> clause \<and> opposite_lit l \<in> clause}"
+    
+    have subset1: "?containing_opp_l \<subseteq> ?not_containing_l" by blast
+    have subset2: "?not_containing_l \<subseteq> f" by blast
+    
+    have image_form: "?reduced_clauses = (\<lambda>clause. clause - {opposite_lit l}) ` ?containing_opp_l"
+      by (auto simp: setcompr_eq_image)
+    
+    have "unit_prop_step f l = (?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses"
+      unfolding unit_prop_step_def
+      apply(simp_all add:Let_def)
+      using False by blast
+    
+    have "card (unit_prop_step f l) = card ((?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses)"
+      using `unit_prop_step f l = (?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses` by simp
+    also have "... = card ((?not_containing_l - ?containing_opp_l) \<union> ((\<lambda>clause. clause - {opposite_lit l}) ` ?containing_opp_l))"
+      using image_form by simp
+    also have "... \<le> card f"
+      using subset_union_card[OF subset2 subset1 assms] by simp
+    finally show ?thesis .
+  qed
+qed
+
+
+
+lemma neg_lits_filtered:
+  fixes f l
+  assumes "finite f"
+  shows "\<forall>c \<in> (unit_prop_step f l). opposite_lit l \<notin> c" 
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis 
+      using unit_prop_empty assms by auto
+  next
+    case False
+    then show ?thesis 
+      unfolding unit_prop_step_def
+      using assms 
+      apply(simp_all add:unit_prop_empty DiffE UnE  singletonI Let_def)
+      by auto
+  qed
+qed
+
+lemma unit_lits_gone:
+  fixes f l
+  assumes "finite f"
+  shows "{l} \<notin> unit_prop_step f l"
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis 
+      by (simp add: assms unit_prop_step_def)
+  next
+    case False
+    then show ?thesis 
+      unfolding unit_prop_step_def
+      apply(simp add:Let_def assms)
+      by blast
+  qed
+qed
+
+lemma literal_not_in_formula:
+  fixes f l
+  assumes "finite f"
+  assumes "\<forall>c \<in> f. l \<notin> c \<and> opposite_lit l \<notin> c"  (* l doesn't appear at all *)
+  shows "unit_prop_step f l = f"
+proof -
+  (* First decide about the if condition *)
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis 
+      using unit_prop_step_def by auto
+  next
+    case False
+    have 1: "{clause \<in> f. l \<notin> clause} = f"
+      using assms(2) by blast
+    have 2: "{clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause} = {}"  
+      using assms by simp 
+    have 3: "{clause \<in> f. opposite_lit l \<in> clause} = {}" 
+      using assms 1 2 by blast
+    have 4: "f - {clause \<in> f. opposite_lit l \<in> clause} = f" 
+      using assms 1 2 3 by blast
+    have 5: " {clause - {opposite_lit l} |clause. clause \<in> f \<and> opposite_lit l \<in> clause} = {}" 
+      using assms 1 2 3 4 by blast
+    then show ?thesis
+      unfolding unit_prop_step_def
+      by (simp_all add:assms 1 2 3 4 5) 
+  qed
+qed
+
+value "unit_prop_step {{Pos 2, Neg 1}, {Pos 1}} (Pos 1)"
+
 definition unit_prop :: "\<Phi> \<Rightarrow> \<Phi>" where
-  "unit_prop f = unit_prop_step f (SOME x. x \<in> (unit_literals f))"
+  "unit_prop f = (let lits = unit_literals f in if card lits = 0 then f else unit_prop_step f ( Max lits))"
+
+value "unit_prop (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
 definition  has_unit_prop :: "\<Phi> \<Rightarrow> bool" where
   "has_unit_prop f = (card (unit_literals f) \<noteq> 0 )"
 
 lemma "is_unit_clause {Pos 0}" by (simp add: is_unit_clause_def)
 
-lemma "unit_literals {{Pos 0, Pos 1}, {Pos 2}, {Pos 1}} = {Pos 2, Pos 1}" sorry
-
-
-lemma "card (unit_literals f) \<le> card f" sorry
 
 (* --- Pure Literal Elimination --- *)
 definition has_literal_elim :: "\<Phi> \<Rightarrow> bool" where
