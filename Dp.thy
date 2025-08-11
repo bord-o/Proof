@@ -73,7 +73,6 @@ fun eval_formula :: "assignment \<Rightarrow> \<Phi> \<Rightarrow> bool" where
 definition satisfiable :: "\<Phi> \<Rightarrow> bool" where
   "satisfiable f = (\<exists>\<sigma>. eval_formula \<sigma> f)"
 
-
 fun opposite_lit :: "literal \<Rightarrow> literal" where
   "opposite_lit (Pos n) = Neg n" |
   "opposite_lit (Neg n) = Pos n"
@@ -125,7 +124,7 @@ To prove:
   x - unit prop step will remove the inverse of that literal from all clauses
   x - unit prop will do nothing if the literal is not in the formula
   x - unit prop will never add clauses, only remove them
-  x - unit prop preserves satisfiability
+  [] - unit prop preserves satisfiability
 *)
 
 
@@ -280,11 +279,48 @@ lemma "is_unit_clause {Pos 0}" by (simp add: is_unit_clause_def)
 definition has_literal_elim :: "\<Phi> \<Rightarrow> bool" where
   "has_literal_elim _ = True"
 
+fun all_literals :: "\<Phi> \<Rightarrow> literal set" where
+  "all_literals f = Union f"
+
+value "all_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
+
+
+(* The set of literals where foreach literal l, \<not>l appears in no clauses in a formula*)
 fun pure_literals :: "\<Phi> \<Rightarrow> literal set" where
-  "pure_literals f = undefined"
+  "pure_literals f = (let all = all_literals f in { l \<in> all. (opposite_lit l) \<notin> all })"
+
+value "pure_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
 fun literal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
-  "literal_elim f = {}"
+  "literal_elim f = (
+    let pure = pure_literals f in
+    { c. c \<in> f \<and> (c - pure = c)}
+  )"
+
+value "literal_elim   {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}, {Neg 1}}"
+
+lemma
+  fixes f
+  assumes "finite f"
+  shows "pure_literals f \<subseteq> all_literals f" by auto
+
+lemma literal_elim_no_grow:
+  fixes f
+  assumes "finite f"
+  shows "card (literal_elim f) \<le> card f"
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case False
+    then show ?thesis 
+      by (simp add: assms card_mono)
+  next
+    case True
+    then show ?thesis
+      by (simp add: assms)
+  qed
+qed
+  
 
 (* --- Non Normal Elimination --- *)
 definition clause_has_non_normal :: "clause \<Rightarrow> bool" where
@@ -302,7 +338,12 @@ value "non_normal_elim {{Pos 0, Pos 1, Neg 0}, {Pos 4}, {Pos 2, Neg 2}, {Neg 3}}
 
 (* --- Resolution --- *)
 fun resolve :: "\<Phi> \<Rightarrow> \<Phi>" where
-  "resolve f = {}"
+  "resolve f = (
+    let all = all_literals f in
+    let pure = pure_literals f in
+    let choice = Max (all - pure) in
+    {}
+  )"
 
 
 (* DP *)
