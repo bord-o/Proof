@@ -337,14 +337,45 @@ definition non_normal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
 value "non_normal_elim {{Pos 0, Pos 1, Neg 0}, {Pos 4}, {Pos 2, Neg 2}, {Neg 3}}"
 
 (* --- Resolution --- *)
+(* this should have n * m added clauses where n and m are the number of clauses with the given 
+  literal and its negation, respectively.
+ *)
+
+fun resolution_pairs :: "\<Phi> \<Rightarrow> literal  \<Rightarrow> (literal set * literal set) set" where
+  "resolution_pairs f choice = (
+    let pos_clauses = {c \<in> f. choice \<in> c} in
+    let neg_clauses = {c \<in> f. (opposite_lit choice \<in> c)} in
+    let res_pairs = {Pair a b | a b. a \<in> pos_clauses \<and> b \<in> neg_clauses} in
+    res_pairs
+  )"
+
+value "resolution_pairs 
+  {{Pos 1, Pos 2},
+  {Pos 1, Neg 3, Pos 4},   
+  {Neg 1, Pos 3},          
+  {Neg 1, Neg 2, Neg 4}, 
+  {Pos 2, Pos 3},          
+  {Neg 5}} (Pos 1)"
+
 fun resolve :: "\<Phi> \<Rightarrow> \<Phi>" where
   "resolve f = (
     let all = all_literals f in
     let pure = pure_literals f in
-    let choice = Max (all - pure) in
-    {}
-  )"
+    let choice = Min (all - pure) in
+    let op_choice = opposite_lit choice in
+    let pairs = resolution_pairs f choice in
+    let additions = { (fst p \<union> snd p) - {choice, op_choice} |p. p \<in> pairs } in
+    let sans_lit = {  c. c \<in> f \<and> choice \<notin> c \<and> op_choice \<notin> c} in
+    additions \<union> sans_lit
+)"
 
+value "resolve 
+  {{Pos 1, Pos 2},
+  {Pos 1, Neg 3, Pos 4},   
+  {Neg 1, Pos 3},          
+  {Neg 1, Neg 2, Neg 4}, 
+  {Pos 2, Pos 3},          
+  {Neg 5}}"
 
 (* DP *)
 fun dp :: "\<Phi> \<Rightarrow> result" where
@@ -355,7 +386,13 @@ fun dp :: "\<Phi> \<Rightarrow> result" where
     if has_unit_prop f then dp (unit_prop f) else
     if has_literal_elim f then dp (literal_elim f) else
     dp (resolve f)
-)"
+)" 
 
-
+value "dp 
+  {{Pos 1, Pos 2},
+  {Pos 1, Neg 3, Pos 4},   
+  {Neg 1, Pos 3},          
+  {Neg 1, Neg 2, Neg 4}, 
+  {Pos 2, Pos 3},          
+  {Neg 5}}"
 end
