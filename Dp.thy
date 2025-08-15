@@ -1,4 +1,5 @@
-theory Dp imports Main
+theory Dp 
+  imports Main HOL.Set
 begin
 
 (* --- Types --- *)
@@ -191,7 +192,70 @@ proof -
   qed
 qed
 
+lemma unit_lits_gone:
+  fixes f l
+  assumes "finite f"
+  assumes "{l} \<in> f"
+  shows "{l} \<notin> unit_prop_step f l"
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis 
+      by (simp add: assms unit_prop_step_def)
+  next
+    case False
+    then show ?thesis 
+      unfolding unit_prop_step_def
+      apply(simp add:Let_def assms)
+      by blast
+  qed
+qed
 
+
+
+lemma unit_prop_no_grow_plus: 
+  fixes f l
+  assumes "finite f"
+  assumes "{l} \<in> f"
+  shows "card (unit_prop_step f l) < card f" 
+proof -
+  show ?thesis
+  proof (cases "card f = 0")
+    case True
+    then show ?thesis using unit_prop_empty assms
+      by fastforce
+  next
+    case False
+    let ?not_containing_l = "{clause \<in> f. l \<notin> clause}"
+    let ?containing_opp_l = "{clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause}"
+    let ?reduced_clauses = "{clause - {opposite_lit l} |clause. clause \<in> f \<and> l \<notin> clause \<and> opposite_lit l \<in> clause}"
+    
+    have subset1: "?containing_opp_l \<subseteq> ?not_containing_l" by blast
+    have subset2: "?not_containing_l \<subseteq> f" by blast
+    
+    have image_form: "?reduced_clauses = (\<lambda>clause. clause - {opposite_lit l}) ` ?containing_opp_l"
+      by (auto simp: setcompr_eq_image)
+    
+    have "unit_prop_step f l = (?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses"
+      unfolding unit_prop_step_def
+      apply(simp_all add:Let_def)
+      using False by blast
+    
+    have "card (unit_prop_step f l) = card ((?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses)"
+      using `unit_prop_step f l = (?not_containing_l - ?containing_opp_l) \<union> ?reduced_clauses` by simp
+    also have "... = card ((?not_containing_l - ?containing_opp_l) \<union> ((\<lambda>clause. clause - {opposite_lit l}) ` ?containing_opp_l))"
+      using image_form by simp
+    also have 1: "card {clause \<in> f. l \<notin> clause} < card f"
+      by (metis (no_types, lifting) assms(1,2) insertI1 mem_Collect_eq psubsetI psubset_card_mono subset2)
+    also have 2: "?thesis" using assms 1
+      by (metis (lifting)
+          \<open>card (unit_prop_step f l) = card ({clause \<in> f. l \<notin> clause} - {clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause} \<union> {clause - {opposite_lit l} |clause. clause \<in> f \<and> l \<notin> clause \<and> opposite_lit l \<in> clause})\<close>
+          \<open>card ({clause \<in> f. l \<notin> clause} - {clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause} \<union> {clause - {opposite_lit l} |clause. clause \<in> f \<and> l \<notin> clause \<and> opposite_lit l \<in> clause}) = card ({clause \<in> f. l \<notin> clause} - {clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause} \<union> (\<lambda>clause. clause - {opposite_lit l}) ` {clause \<in> f. l \<notin> clause \<and> opposite_lit l \<in> clause})\<close>
+          dual_order.refl le_eq_less_or_eq linorder_not_less rev_finite_subset subset1 subset2 subset_union_card)
+     show ?thesis using 2 .
+  qed
+qed
 
 lemma neg_lits_filtered:
   fixes f l
@@ -213,24 +277,7 @@ proof -
   qed
 qed
 
-lemma unit_lits_gone:
-  fixes f l
-  assumes "finite f"
-  shows "{l} \<notin> unit_prop_step f l"
-proof -
-  show ?thesis
-  proof (cases "card f = 0")
-    case True
-    then show ?thesis 
-      by (simp add: assms unit_prop_step_def)
-  next
-    case False
-    then show ?thesis 
-      unfolding unit_prop_step_def
-      apply(simp add:Let_def assms)
-      by blast
-  qed
-qed
+
 
 lemma literal_not_in_formula:
   fixes f l
@@ -273,6 +320,55 @@ definition  has_unit_prop :: "\<Phi> \<Rightarrow> bool" where
   "has_unit_prop f = (card (unit_literals f) \<noteq> 0 )"
 
 lemma "is_unit_clause {Pos 0}" by (simp add: is_unit_clause_def)
+
+
+lemma unit_prop_step_shrink_apply:
+  fixes f l
+  assumes "finite f"
+  assumes "has_unit_prop f"
+  assumes "l \<in> unit_literals f"
+  shows "card (unit_prop_step f l) < card f"
+proof (cases "card f = 0")
+  case True
+  then show ?thesis 
+    using assms(1,2) has_unit_prop_def by auto
+next
+  case False
+  then show ?thesis
+  proof -
+    let ?up = "unit_prop_step f l"
+    have 1:  "{l} \<notin> ?up" using assms(1) unit_lits_gone[of f l] 
+      by (metis One_nat_def assms(3) card_1_singleton_iff the_elem_eq unit_literals_sound)
+    have 2: "{l} \<in> f " using assms(3) 
+      by (metis One_nat_def assms(1) card_1_singleton_iff the_elem_eq unit_literals_sound)
+    have 3: "card (f - {{l}}) < card f" 
+      using "2" False by auto
+    have 4: "card (?up) \<le> card f"
+      using assms(1) unit_prop_no_grow[of f l] 1 by blast
+    have 5: "card ?up \<noteq> card f" using unit_prop_no_grow_plus
+      using "2" assms(1) nat_less_le by blast
+    show ?thesis using 1 2 4 5 unit_lits_gone[of f l] unit_prop_no_grow_plus by auto
+  qed    
+qed
+
+lemma unit_prop_shrink_apply:
+  fixes f
+  assumes "finite f"
+  assumes "has_unit_prop f"
+  shows "card (unit_prop f) < card f"
+proof (cases "card f = 0")
+  case True
+  then show ?thesis 
+    using assms(1,2) has_unit_prop_def by auto
+next
+  case False
+  let ?ul = "unit_literals f"
+  let ?choice = "Max ?ul"
+  show ?thesis
+    unfolding unit_prop_def
+    using assms unit_prop_step_shrink_apply[of f choice]
+    by (simp add: has_unit_prop_def unit_prop_step_shrink_apply)
+qed
 
 
 (* --- Pure Literal Elimination --- *)
@@ -324,17 +420,37 @@ qed
 
 (* --- Non Normal Elimination --- *)
 definition clause_has_non_normal :: "clause \<Rightarrow> bool" where
-  "clause_has_non_normal c = ( { lit \<in> c. opposite_lit lit \<in> c } \<noteq> {})"
+  "clause_has_non_normal c = ( \<exists>lit \<in> c. opposite_lit lit \<in> c)"
+
 value "clause_has_non_normal {Pos 1, Neg 1}"
 
 definition has_non_normal :: "\<Phi> \<Rightarrow> bool"  where
-   "has_non_normal f = ( { clause \<in> f. clause_has_non_normal clause } \<noteq> {})"
+   "has_non_normal f = ( \<exists>clause \<in> f. clause_has_non_normal clause )"
 
 (* Eliminate clauses that contain a literal and its negation *)
 definition non_normal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
   "non_normal_elim f = {c \<in> f. \<not> (clause_has_non_normal c)} "
 
 value "non_normal_elim {{Pos 0, Pos 1, Neg 0}, {Pos 4}, {Pos 2, Neg 2}, {Neg 3}}"
+
+lemma non_norm_shrink_apply:
+  fixes f
+  assumes "finite f"
+  assumes "has_non_normal f"
+  shows "card (non_normal_elim f) < card f"
+  by (metis (mono_tags, lifting) Collect_mem_eq Collect_mono_iff assms(1,2) has_non_normal_def non_normal_elim_def psubsetI
+      psubset_card_mono)
+
+lemma non_norm_no_grow: 
+  fixes f
+  assumes "finite f"
+  shows "card (non_normal_elim f) \<le> card f"
+proof -
+  show ?thesis 
+    unfolding non_normal_elim_def
+    by (simp add: assms card_mono)
+ qed
+
 
 (* --- Resolution --- *)
 (* this should have n * m added clauses where n and m are the number of clauses with the given 
@@ -349,14 +465,6 @@ fun resolution_pairs :: "\<Phi> \<Rightarrow> literal  \<Rightarrow> (literal se
     res_pairs
   )"
 
-value "resolution_pairs 
-  {{Pos 1, Pos 2},
-  {Pos 1, Neg 3, Pos 4},   
-  {Neg 1, Pos 3},          
-  {Neg 1, Neg 2, Neg 4}, 
-  {Pos 2, Pos 3},          
-  {Neg 5}} (Pos 1)"
-
 fun resolve :: "\<Phi> \<Rightarrow> \<Phi>" where
   "resolve f = (
     let all = all_literals f in
@@ -369,6 +477,13 @@ fun resolve :: "\<Phi> \<Rightarrow> \<Phi>" where
     additions \<union> sans_lit
 )"
 
+value "resolution_pairs 
+  {{Pos 1, Pos 2},
+  {Pos 1, Neg 3, Pos 4},   
+  {Neg 1, Pos 3},          
+  {Neg 1, Neg 2, Neg 4}, 
+  {Pos 2, Pos 3},          
+  {Neg 5}} (Pos 1)"
 value "resolve 
   {{Pos 1, Pos 2},
   {Pos 1, Neg 3, Pos 4},   
@@ -376,23 +491,78 @@ value "resolve
   {Neg 1, Neg 2, Neg 4}, 
   {Pos 2, Pos 3},          
   {Neg 5}}"
+lemma card_implies_finite:
+  "card S \<noteq> 0 \<or> S = {} \<Longrightarrow> finite S"
+  by (metis card.infinite finite.emptyI)
 
 (* DP *)
-fun dp :: "\<Phi> \<Rightarrow> result" where
+function dp :: "\<Phi> \<Rightarrow> result" where
   "dp f = 
-    (if f = {} then Sat else 
+    (if card f = 0 then Sat else 
     if has_empty_clause f then Unsat else 
     if has_non_normal f then dp (non_normal_elim f) else
     if has_unit_prop f then dp (unit_prop f) else
     if has_literal_elim f then dp (literal_elim f) else
     dp (resolve f)
-)" 
+)"
+  by pat_completeness auto
+termination
+proof (relation "measures [\<lambda>f. card (all_literals f), \<lambda>f. card f, \<lambda>f. sum card f]", 
+       goal_cases WF TAUT UP PLE RES)
+  case WF  
+  then show ?case by auto
+next  
+  case (TAUT form)
+  show ?case
+  proof -
+    have 1: "finite form \<or> card form = 0"
+      by (metis card.infinite)
+    have 2: "finite form"
+      using "1" TAUT(1) by auto
+    have 3: "card (non_normal_elim form) < card form"
+      using TAUT non_norm_shrink_apply[of form] 1 by simp
+    then show ?thesis
+      using measures_less by simp
+  qed   
+next
+  case (UP form)
+  show ?case
+    proof -
+    have 1: "finite form \<or> card form = 0"
+      by (metis card.infinite)
+    have 2: "finite form"
+      using "1" UP(1) by auto
+    have 3: "card (unit_prop form) < card form"
+      using UP 2 unit_prop_shrink_apply[of form] by auto
+    then show ?thesis
+      using measures by simp
+  qed
 
-value "dp 
+
+next
+  case (PLE form) 
+  then show ?case 
+  proof -
+    have 1: "card (all_literals (literal_elim form)) < card (all_literals form)" sorry
+    then show ?thesis
+      using measures_def by simp
+  qed
+
+next
+  case RES  
+  then show ?case 
+    apply(simp_all add:Let_def)
+    using has_literal_elim_def by blast
+qed
+ 
+
+value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 1}, {Neg 1}}"
+value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 2}, {Neg 1, Pos 2}}"
+(*value "dp 
   {{Pos 1, Pos 2},
   {Pos 1, Neg 3, Pos 4},   
   {Neg 1, Pos 3},          
   {Neg 1, Neg 2, Neg 4}, 
   {Pos 2, Pos 3},          
-  {Neg 5}}"
+  {Neg 5}}"*)
 end
