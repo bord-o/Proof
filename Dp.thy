@@ -506,8 +506,9 @@ function dp :: "\<Phi> \<Rightarrow> result" where
     dp (resolve f)
 )"
   by pat_completeness auto
+
 termination
-proof (relation "measures [\<lambda>f. card (all_literals f), \<lambda>f. card f, \<lambda>f. sum card f]", 
+proof (relation "measures [ \<lambda>f. card f, \<lambda>f. card (all_literals f)]", 
        goal_cases WF TAUT UP PLE RES)
   case WF  
   then show ?case by auto
@@ -522,7 +523,7 @@ next
     have 3: "card (non_normal_elim form) < card form"
       using TAUT non_norm_shrink_apply[of form] 1 by simp
     then show ?thesis
-      using measures_less by simp
+      using measures_def by auto
   qed   
 next
   case (UP form)
@@ -535,7 +536,7 @@ next
     have 3: "card (unit_prop form) < card form"
       using UP 2 unit_prop_shrink_apply[of form] by auto
     then show ?thesis
-      using measures by simp
+      using measures_def by simp
   qed
 
 
@@ -544,8 +545,10 @@ next
   then show ?case 
   proof -
     have 1: "card (all_literals (literal_elim form)) < card (all_literals form)" sorry
+    have 2: "card (literal_elim form) \<le> card form" using literal_elim_no_grow sorry
     then show ?thesis
-      using measures_def by simp
+      using measures_def
+      1 2 by auto
   qed
 
 next
@@ -554,7 +557,6 @@ next
     apply(simp_all add:Let_def)
     using has_literal_elim_def by blast
 qed
- 
 
 value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 1}, {Neg 1}}"
 value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 2}, {Neg 1, Pos 2}}"
