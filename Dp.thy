@@ -614,6 +614,55 @@ fun resolve :: "\<Phi> \<Rightarrow> \<Phi>" where
     additions \<union> sans_lit
 )"
 
+lemma resolve_shrink_apply_lits:
+  fixes f
+  assumes "finite f"
+  assumes "\<forall>c \<in> f. finite c"
+  assumes "\<not>has_literal_elim f"
+  assumes "\<not>has_empty_clause f"
+  assumes "card f \<noteq> 0"
+  shows "card (all_literals (resolve f)) < card (all_literals f)"
+proof -
+  show ?thesis
+  proof -
+    let ?all = "all_literals f "
+    let ?pure = "pure_literals f "
+    let ?diff = "?all - ?pure"
+    let ?choice = "Min (?all - ?pure) "
+    let ?op_choice = "opposite_lit ?choice "
+    let ?pairs = "resolution_pairs f ?choice "
+    let ?additions = "{ (fst p \<union> snd p) - {?choice, ?op_choice} |p. p \<in> ?pairs } "
+    let ?sans_lit = "{  c. c \<in> f \<and> ?choice \<notin> c \<and> ?op_choice \<notin> c} "
+    let ?res = "?additions \<union> ?sans_lit"
+
+    have 1: "?choice \<notin> all_literals ?res" by auto
+    have 2: "?op_choice \<notin> all_literals ?res" by auto
+    have 3: "\<nexists>l. l \<in> ?pure \<and> l \<notin> ?all" by auto
+    have 4: "finite ?diff" 
+      by (simp add: assms(1,2))
+    have 5: "card ?pure = 0" using assms unfolding has_literal_elim_def by auto
+    have 6: "?choice \<in> (?all - ?pure)" 
+      using assms
+      unfolding has_empty_clause_def
+      unfolding has_literal_elim_def 
+      using assms Min_in[of ?diff] 
+      by (metis "3" "4" Diff_empty double_diff form_not_empty_lits_exist subsetI)
+    have 7: "\<nexists>l. l \<in> (all_literals ?res) \<and> l \<notin> ?all" by auto
+    have 8: "\<exists>l. l \<in> ?all \<and> l \<notin> (all_literals ?res)" 
+      using 6 1
+      by blast
+    have 9: "all_literals ?res \<subset> ?all"
+      using 7 8
+       by blast
+    have 10: "card (all_literals ?res) < card ?all"
+      by (metis (lifting) "9" all_literals.simps assms(1,2) card_seteq finite_Union linorder_not_le
+          order_less_le)
+    show ?thesis       
+      by (metis "10" resolve.simps)
+  qed
+qed
+
+
 value "resolution_pairs 
   {{Pos 1, Pos 2},
   {Pos 1, Neg 3, Pos 4},   
@@ -713,10 +762,18 @@ next
   case (RES form)
   then show ?case 
   proof -
-    have 1: "card (all_literals (resolve form)) < card (all_literals form)" sorry
+    have 1: "finite form \<or> card form = 0"
+      by (metis card.infinite)
+    have 2: "finite form"
+      using "1" RES(1) by auto
+    have alt1: "\<forall>c \<in> form. finite c \<or> card c = 0" by (metis card.infinite)
+    have alt2: "\<forall>c \<in> form. card c \<noteq> 0" using RES alt1 unfolding has_empty_clause_def
+      by auto
+    have alt3: "\<forall> c \<in> form. finite c" using alt1 alt2 by auto
+    have 1: "card (all_literals (resolve form)) < card (all_literals form)"
+      using RES resolve_shrink_apply_lits[of form] alt3 by fastforce
     then show ?thesis using measures_def by simp
   qed
-    
 qed
 
 value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 1}, {Neg 1}}"
