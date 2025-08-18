@@ -424,22 +424,6 @@ lemma
   assumes "finite f"
   shows "pure_literals f \<subseteq> all_literals f" by auto
 
-lemma literal_elim_no_grow:
-  fixes f
-  assumes "finite f"
-  shows "card (literal_elim f) \<le> card f"
-proof -
-  show ?thesis
-  proof (cases "card f = 0")
-    case False
-    then show ?thesis 
-      by (simp add: assms card_mono)
-  next
-    case True
-    then show ?thesis
-      by (simp add: assms)
-  qed
-qed
 
 lemma form_not_empty_lits_exist:
   fixes f
@@ -557,16 +541,6 @@ lemma non_norm_shrink_apply:
   by (metis (mono_tags, lifting) Collect_mem_eq Collect_mono_iff assms(1,2) has_non_normal_def non_normal_elim_def psubsetI
       psubset_card_mono)
 
-lemma non_norm_no_grow: 
-  fixes f
-  assumes "finite f"
-  shows "card (non_normal_elim f) \<le> card f"
-proof -
-  show ?thesis 
-    unfolding non_normal_elim_def
-    by (simp add: assms card_mono)
- qed
-
 lemma non_norm_elim_no_grow_lits:
   fixes f
   assumes "finite f"
@@ -677,9 +651,7 @@ value "resolve
   {Neg 1, Neg 2, Neg 4}, 
   {Pos 2, Pos 3},          
   {Neg 5}}"
-lemma card_implies_finite:
-  "card S \<noteq> 0 \<or> S = {} \<Longrightarrow> finite S"
-  by (metis card.infinite finite.emptyI)
+
 
 (* DP *)
 function dp :: "\<Phi> \<Rightarrow> result" where
