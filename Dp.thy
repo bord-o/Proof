@@ -42,14 +42,6 @@ next
 qed
 end
 
-lemma "Neg 1 < Neg 2" by simp
-
-(*
-
-  apply (standard; simp add: less_eq_literal_def)
-  using less_literal.elims(2) apply fastforce*)
-
-
 type_synonym clause = "literal set"
 
 type_synonym \<Phi> = "clause set"
@@ -85,17 +77,12 @@ fun index_of_lit :: "literal \<Rightarrow> nat" where
 definition has_empty_clause :: "\<Phi> \<Rightarrow> bool" where 
   "has_empty_clause f = (\<exists>c \<in> f. card c = 0)"
 
-value "has_empty_clause { {Pos 2}, {Pos 1}} = False"
-
-
 (* --- Unit Propagation --- *)
 definition is_unit_clause :: "clause \<Rightarrow> bool" where
   "is_unit_clause c = (card c = 1)"
 
 fun  unit_literals :: "\<Phi> \<Rightarrow> literal set" where
   "unit_literals f = the_elem ` {c.  c \<in> f \<and> is_unit_clause c}"
-
-value "unit_literals {{Pos 1, Pos 2}, {Pos 3}}"
 
 lemma fixes f c assumes "c \<in> f \<and> card c = 1" shows "(the_elem c) \<in> unit_literals f"
   by (simp add: assms is_unit_clause_def)
@@ -109,7 +96,6 @@ proof -
   show ?thesis
     using assms(2) is_unit_clause_def by auto
 qed
-  
 
 definition unit_prop_step :: "\<Phi> \<Rightarrow> literal \<Rightarrow> \<Phi>" where
   "unit_prop_step f uc = (
@@ -118,16 +104,6 @@ definition unit_prop_step :: "\<Phi> \<Rightarrow> literal \<Rightarrow> \<Phi>"
       let neg_lit = opposite_lit uc in
       let neg_filt = {clause \<in> pos_filt. neg_lit \<in> clause} in 
       (pos_filt - neg_filt) \<union> {(\<lambda>c. c - {neg_lit}) clause | clause. clause \<in> neg_filt })"
-
-(*
-To prove:
-  x - unit prop step will remove all clauses containing that literal
-  x - unit prop step will remove the inverse of that literal from all clauses
-  x - unit prop will do nothing if the literal is not in the formula
-  x - unit prop will never add clauses, only remove them
-  [] - unit prop preserves satisfiability
-*)
-
 
 lemma unit_prop_empty:
   assumes "finite f"
@@ -285,7 +261,6 @@ lemma literal_not_in_formula:
   assumes "\<forall>c \<in> f. l \<notin> c \<and> opposite_lit l \<notin> c"  (* l doesn't appear at all *)
   shows "unit_prop_step f l = f"
 proof -
-  (* First decide about the if condition *)
   show ?thesis
   proof (cases "card f = 0")
     case True
@@ -309,12 +284,10 @@ proof -
   qed
 qed
 
-value "unit_prop_step {{Pos 2, Neg 1}, {Pos 1}} (Pos 1)"
 
 definition unit_prop :: "\<Phi> \<Rightarrow> \<Phi>" where
   "unit_prop f = (let lits = unit_literals f in if card lits = 0 then f else unit_prop_step f ( Max lits))"
 
-value "unit_prop (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
 definition  has_unit_prop :: "\<Phi> \<Rightarrow> bool" where
   "has_unit_prop f = (card (unit_literals f) \<noteq> 0 )"
@@ -396,16 +369,9 @@ qed
 
 (* --- Pure Literal Elimination --- *)
 
-
-
-value "all_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
-
-
-(* The set of literals where foreach literal l, \<not>l appears in no clauses in a formula*)
 fun pure_literals :: "\<Phi> \<Rightarrow> literal set" where
   "pure_literals f = (let all = all_literals f in { l \<in> all. (opposite_lit l) \<notin> all })"
 
-value "pure_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
 definition has_literal_elim :: "\<Phi> \<Rightarrow> bool" where
   "has_literal_elim f = (card (pure_literals f) \<noteq> 0)"
@@ -417,7 +383,6 @@ fun literal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
     { c. c \<in> f \<and> (disjnt c pure)}
   )"
 
-value "literal_elim   {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}, {Neg 2, Pos 5}, {Neg 1}}"
 
 lemma
   fixes f
@@ -511,27 +476,20 @@ proof -
     have 6: "literal_elim f = f - ?impure_clauses" using assms by auto
     have 7: "card ?impure_clauses \<noteq> 0 \<Longrightarrow> card (f - ?impure_clauses) < card f" using 6 assms 
       by (metis (no_types, lifting) "4" DiffD2 Diff_subset card_seteq linorder_not_le mem_Collect_eq)
-    have 8: "card (literal_elim f) < card f" using assms 5 6 7 by auto (* TODO: move this to another lemma*)
+    have 8: "card (literal_elim f) < card f" using assms 5 6 7 by auto 
     show ?thesis using 8 .
   qed
 qed
-
-
 
 (* --- Non Normal Elimination --- *)
 definition clause_has_non_normal :: "clause \<Rightarrow> bool" where
   "clause_has_non_normal c = ( \<exists>lit \<in> c. opposite_lit lit \<in> c)"
 
-value "clause_has_non_normal {Pos 1, Neg 1}"
-
 definition has_non_normal :: "\<Phi> \<Rightarrow> bool"  where
    "has_non_normal f = ( \<exists>clause \<in> f. clause_has_non_normal clause )"
 
-(* Eliminate clauses that contain a literal and its negation *)
 definition non_normal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
   "non_normal_elim f = {c \<in> f. \<not> (clause_has_non_normal c)} "
-
-value "non_normal_elim {{Pos 0, Pos 1, Neg 0}, {Pos 4}, {Pos 2, Neg 2}, {Neg 3}}"
 
 lemma non_norm_shrink_apply:
   fixes f
@@ -562,12 +520,7 @@ proof -
   qed
 qed
 
-
 (* --- Resolution --- *)
-(* this should have n * m added clauses where n and m are the number of clauses with the given 
-  literal and its negation, respectively.
- *)
-
 fun resolution_pairs :: "\<Phi> \<Rightarrow> literal  \<Rightarrow> (literal set * literal set) set" where
   "resolution_pairs f choice = (
     let pos_clauses = {c \<in> f. choice \<in> c} in
@@ -636,23 +589,6 @@ proof -
   qed
 qed
 
-
-value "resolution_pairs 
-  {{Pos 1, Pos 2},
-  {Pos 1, Neg 3, Pos 4},   
-  {Neg 1, Pos 3},          
-  {Neg 1, Neg 2, Neg 4}, 
-  {Pos 2, Pos 3},          
-  {Neg 5}} (Pos 1)"
-value "resolve 
-  {{Pos 1, Pos 2},
-  {Pos 1, Neg 3, Pos 4},   
-  {Neg 1, Pos 3},          
-  {Neg 1, Neg 2, Neg 4}, 
-  {Pos 2, Pos 3},          
-  {Neg 5}}"
-
-
 (* DP *)
 function dp :: "\<Phi> \<Rightarrow> result" where
   "dp f = 
@@ -708,7 +644,6 @@ next
     then show ?thesis
       using 3 4 by auto
   qed
-
 next
   case (PLE form) 
   then show ?case 
@@ -729,7 +664,6 @@ next
     then show ?thesis
       using 3 4 by auto
   qed
-
 next
   case (RES form)
   then show ?case 
@@ -748,13 +682,4 @@ next
   qed
 qed
 
-value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 1}, {Neg 1}}"
-value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 2}, {Neg 1, Pos 2}}"
-(*value "dp 
-  {{Pos 1, Pos 2},
-  {Pos 1, Neg 3, Pos 4},   
-  {Neg 1, Pos 3},          
-  {Neg 1, Neg 2, Neg 4}, 
-  {Pos 2, Pos 3},          
-  {Neg 5}}"*)
 end
