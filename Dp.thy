@@ -83,7 +83,7 @@ fun index_of_lit :: "literal \<Rightarrow> nat" where
   "index_of_lit (Neg n) = n"
 
 definition has_empty_clause :: "\<Phi> \<Rightarrow> bool" where 
-  "has_empty_clause f = ({} \<in> f)"
+  "has_empty_clause f = (\<exists>c \<in> f. card c = 0)"
 
 value "has_empty_clause { {Pos 2}, {Pos 1}} = False"
 
@@ -370,13 +370,33 @@ next
     by (simp add: has_unit_prop_def unit_prop_step_shrink_apply)
 qed
 
-
-(* --- Pure Literal Elimination --- *)
-definition has_literal_elim :: "\<Phi> \<Rightarrow> bool" where
-  "has_literal_elim _ = True"
-
 fun all_literals :: "\<Phi> \<Rightarrow> literal set" where
   "all_literals f = Union f"
+
+lemma unit_prop_no_grow_lits:
+  fixes f
+  assumes "finite f"
+  assumes "has_unit_prop f"
+  assumes "\<forall>c \<in> f. finite c"
+  assumes "\<not>has_empty_clause f" (* This is essential to refute the case where f has the empty set *)
+  assumes "card f \<noteq> 0"
+  shows "card (all_literals (unit_prop f)) \<le> card (all_literals f)"
+proof -
+  show ?thesis
+  proof -
+    let ?all = "all_literals f"
+    let ?after = "all_literals (unit_prop f)"
+    have 1: "\<nexists>l. l \<in> ?after \<and> l \<notin> ?all"
+      using unit_prop_def  unit_prop_step_def by auto
+    show ?thesis
+      by (metis "1" all_literals.simps assms(1,3) card_mono finite_Union subsetI)
+  qed
+qed
+
+
+(* --- Pure Literal Elimination --- *)
+
+
 
 value "all_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
@@ -387,13 +407,17 @@ fun pure_literals :: "\<Phi> \<Rightarrow> literal set" where
 
 value "pure_literals  (unit_prop {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}})"
 
+definition has_literal_elim :: "\<Phi> \<Rightarrow> bool" where
+  "has_literal_elim f = (card (pure_literals f) \<noteq> 0)"
+
+
 fun literal_elim :: "\<Phi> \<Rightarrow> \<Phi>" where
   "literal_elim f = (
     let pure = pure_literals f in
-    { c. c \<in> f \<and> (c - pure = c)}
+    { c. c \<in> f \<and> (disjnt c pure)}
   )"
 
-value "literal_elim   {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}, {Neg 1}}"
+value "literal_elim   {{Pos 1, Pos 3, Neg 4}, {Pos 1, Neg 2, Neg 3, Pos 4}, {Neg 2, Pos 5}, {Neg 1}}"
 
 lemma
   fixes f
@@ -416,7 +440,99 @@ proof -
       by (simp add: assms)
   qed
 qed
-  
+
+lemma form_not_empty_lits_exist:
+  fixes f
+  assumes "finite f"
+  assumes "card f \<noteq> 0"
+  assumes "\<forall>s \<in> f. finite s"
+  assumes "\<not>has_empty_clause f" (* This is essential to refute the case where f has the empty set *)
+  shows "card (all_literals f) \<noteq> 0"
+proof -
+  show ?thesis
+  proof -
+    have 1: "{} \<notin> f" using has_empty_clause_def assms by auto
+    have 2: "finite f \<Longrightarrow> {} \<notin> f \<Longrightarrow> card f \<noteq> 0 \<Longrightarrow> card (all_literals f) \<noteq> 0"
+    proof -
+      have "f \<noteq> {}" using assms by (simp add: card_gt_0_iff)
+      then obtain A where "A \<in> f" by blast
+      have "A \<noteq> {}" using `A \<in> f` `{} \<notin> f` by blast
+      have "A \<subseteq> \<Union>f" using `A \<in> f` by blast
+      have "\<Union>f \<noteq> {}" using `A \<subseteq> \<Union>f` `A \<noteq> {}` by blast
+      have "finite (\<Union>f)" using  assms by auto
+      have "0 < card (\<Union>f)" using \<open>\<Union> f \<noteq> {}\<close> \<open>finite (\<Union> f)\<close> by auto
+      show ?thesis by (simp add: \<open>0 < card (\<Union> f)\<close>)
+    qed
+    then show ?thesis 
+      using "1" assms(1,2) by blast     
+  qed
+qed
+
+
+
+lemma literal_elim_no_grow_lits:
+  fixes f
+  assumes "finite f"
+  assumes "has_literal_elim f"
+  assumes "\<forall>c \<in> f. finite c"
+  assumes "\<not>has_empty_clause f" (* This is essential to refute the case where f has the empty set *)
+  assumes "card f \<noteq> 0"
+  shows "card (all_literals (literal_elim f)) \<le> card (all_literals f)"
+proof -
+  show ?thesis 
+  proof -
+    let ?pure = "pure_literals f"
+    let ?impure_clauses = "{c \<in> f. \<not> disjnt c ?pure}"
+
+
+    have 1: "card ?pure \<noteq> 0" using assms(2)
+      unfolding has_literal_elim_def by simp
+    have 2: "card (all_literals f) \<noteq> 0" using assms form_not_empty_lits_exist by simp
+    have 4: "\<exists>c \<in> f. \<not> disjnt c ?pure" using has_literal_elim_def assms 
+      by (metis (no_types, lifting) Set.set_insert all_literals.elims card_eq_0_iff disjnt_Union1 disjnt_insert2
+          mem_Collect_eq obtains_Max pure_literals.simps)
+    have 5: "card ?impure_clauses \<noteq> 0" using assms 4 by auto
+    have 6: "literal_elim f = f - ?impure_clauses" using assms by auto
+    have 7: "card ?impure_clauses \<noteq> 0 \<Longrightarrow> card (f - ?impure_clauses) < card f" using 6 assms 
+      by (metis (no_types, lifting) "4" DiffD2 Diff_subset card_seteq linorder_not_le mem_Collect_eq)
+    have 10: "disjnt ?pure (all_literals (f - ?impure_clauses))" using disjnt_sym by auto
+    have 11: "\<exists>l \<in> ?pure. l \<notin> (all_literals (f - ?impure_clauses))"
+      by (metis (lifting) "1" "10" all_not_in_conv card_eq_0_iff disjnt_iff)
+
+    have 14: "\<nexists>l. l\<in> (all_literals (f - ?impure_clauses)) \<and> l \<notin> all_literals f" by auto
+    have 15: "card (all_literals (f - ?impure_clauses)) \<le> card (all_literals f)" using 10 11 14 
+      by (meson "2" card_eq_0_iff card_mono subsetI)
+
+    show ?thesis
+      using assms 15 6  by argo
+  qed
+qed
+
+
+lemma literal_elim_shrink_apply_clauses:
+  fixes f
+  assumes "finite f"
+  assumes "has_literal_elim f"
+  assumes "card f \<noteq> 0"
+  shows "card ( (literal_elim f)) < card ( f)"
+proof -
+  show ?thesis 
+  proof -
+    let ?pure = "pure_literals f"
+    let ?impure_clauses = "{c \<in> f. \<not> disjnt c ?pure}"
+    have 4: "\<exists>c \<in> f. \<not> disjnt c ?pure" using has_literal_elim_def assms 
+      by (metis (no_types, lifting) Set.set_insert all_literals.elims card_eq_0_iff disjnt_Union1 disjnt_insert2
+          mem_Collect_eq obtains_Max pure_literals.simps)
+    have 5: "card ?impure_clauses \<noteq> 0" using assms 4 by auto
+    have 6: "literal_elim f = f - ?impure_clauses" using assms by auto
+    have 7: "card ?impure_clauses \<noteq> 0 \<Longrightarrow> card (f - ?impure_clauses) < card f" using 6 assms 
+      by (metis (no_types, lifting) "4" DiffD2 Diff_subset card_seteq linorder_not_le mem_Collect_eq)
+    have 8: "card (literal_elim f) < card f" using assms 5 6 7 by auto (* TODO: move this to another lemma*)
+    show ?thesis using 8 .
+  qed
+qed
+
+
 
 (* --- Non Normal Elimination --- *)
 definition clause_has_non_normal :: "clause \<Rightarrow> bool" where
@@ -450,6 +566,27 @@ proof -
     unfolding non_normal_elim_def
     by (simp add: assms card_mono)
  qed
+
+lemma non_norm_elim_no_grow_lits:
+  fixes f
+  assumes "finite f"
+  assumes "has_non_normal f"
+  assumes "\<forall>c \<in> f. finite c"
+  assumes "\<not>has_empty_clause f" (* This is essential to refute the case where f has the empty set *)
+  assumes "card f \<noteq> 0"
+  shows "card (all_literals (non_normal_elim f)) \<le> card (all_literals f)"
+proof -
+  
+  show ?thesis
+  proof -
+    let ?all = "all_literals f"
+    let ?after = "all_literals (non_normal_elim f)"
+    have 1: "\<nexists>l. l \<in> ?after \<and> l \<notin> ?all"
+      using non_normal_elim_def by fastforce
+    show ?thesis
+      by (meson "1" assms(3,4,5) card.infinite card_mono form_not_empty_lits_exist subsetI)
+  qed
+qed
 
 
 (* --- Resolution --- *)
@@ -508,7 +645,7 @@ function dp :: "\<Phi> \<Rightarrow> result" where
   by pat_completeness auto
 
 termination
-proof (relation "measures [ \<lambda>f. card f, \<lambda>f. card (all_literals f)]", 
+proof (relation "measures [ \<lambda>f. card (all_literals f),  \<lambda>f. card f]", 
        goal_cases WF TAUT UP PLE RES)
   case WF  
   then show ?case by auto
@@ -520,10 +657,16 @@ next
       by (metis card.infinite)
     have 2: "finite form"
       using "1" TAUT(1) by auto
+    have alt1: "\<forall>c \<in> form. finite c \<or> card c = 0" by (metis card.infinite)
+    have alt2: "\<forall>c \<in> form. card c \<noteq> 0" using TAUT alt1 unfolding has_empty_clause_def
+      by auto
+    have alt3: "\<forall> c \<in> form. finite c" using alt1 alt2 by auto
     have 3: "card (non_normal_elim form) < card form"
       using TAUT non_norm_shrink_apply[of form] 1 by simp
+    have 4: "card (all_literals (non_normal_elim form)) \<le> card (all_literals form)" 
+      using TAUT non_norm_elim_no_grow_lits[of form]  alt3 by fastforce
     then show ?thesis
-      using measures_def by auto
+      using 3 4 by auto
   qed   
 next
   case (UP form)
@@ -533,29 +676,47 @@ next
       by (metis card.infinite)
     have 2: "finite form"
       using "1" UP(1) by auto
+    have alt1: "\<forall>c \<in> form. finite c \<or> card c = 0" by (metis card.infinite)
+    have alt2: "\<forall>c \<in> form. card c \<noteq> 0" using UP alt1 unfolding has_empty_clause_def
+      by auto
+    have alt3: "\<forall> c \<in> form. finite c" using alt1 alt2 by auto
     have 3: "card (unit_prop form) < card form"
       using UP 2 unit_prop_shrink_apply[of form] by auto
+    have 4: "card (all_literals (unit_prop form)) \<le> card (all_literals form)" 
+      using UP alt3 unit_prop_no_grow_lits[of form] by fastforce
     then show ?thesis
-      using measures_def by simp
+      using 3 4 by auto
   qed
-
 
 next
   case (PLE form) 
   then show ?case 
   proof -
-    have 1: "card (all_literals (literal_elim form)) < card (all_literals form)" sorry
-    have 2: "card (literal_elim form) \<le> card form" using literal_elim_no_grow sorry
+    have 1: "finite form \<or> card form = 0"
+      by (metis card.infinite)
+    have 2: "finite form"
+      using "1" PLE(1) by auto
+
+    have alt1: "\<forall>c \<in> form. finite c \<or> card c = 0" by (metis card.infinite)
+    have alt2: "\<forall>c \<in> form. card c \<noteq> 0" using PLE alt1 unfolding has_empty_clause_def
+      by auto
+    have alt3: "\<forall> c \<in> form. finite c" using alt1 alt2 by auto
+    have 3: "card (literal_elim form) < card form" 
+      using PLE 2 literal_elim_shrink_apply_clauses[of form] by blast
+    have 4: "card (all_literals (literal_elim form)) \<le> card (all_literals form)" 
+      using alt3 PLE literal_elim_no_grow_lits[of form] by fastforce
     then show ?thesis
-      using measures_def
-      1 2 by auto
+      using 3 4 by auto
   qed
 
 next
-  case RES  
+  case (RES form)
   then show ?case 
-    apply(simp_all add:Let_def)
-    using has_literal_elim_def by blast
+  proof -
+    have 1: "card (all_literals (resolve form)) < card (all_literals form)" sorry
+    then show ?thesis using measures_def by simp
+  qed
+    
 qed
 
 value "dp {{Pos 0, Pos 1}, {Neg 0, Pos 1}, {Neg 1}}"
